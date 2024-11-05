@@ -5,6 +5,7 @@ import mongoose from 'mongoose';
 import 'dotenv/config';
 import userRouter from './routes/userRoutes.js';
 import connectCloudinary from './config/cloudinary.js';
+import adminRouter from './routes/adminRoutes.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -29,6 +30,7 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 app.use('/api/user', userRouter);
+app.use('/api/admin', adminRouter);
 
 app.listen(port, () => {
   console.log(`Server started on port ${port}`);
