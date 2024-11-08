@@ -3,6 +3,7 @@ import Admin from '../models/Admin.js';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { v2 as cloudinary } from 'cloudinary';
+import Doctor from '../models/Doctor.js';
 
 //admin signin up
 const adminSignUp = async (req, res) => {
@@ -54,16 +55,10 @@ const adminSignUp = async (req, res) => {
     });
     await admin.save();
 
-    //generate token
-    const token = jwt.sign({ id: admin._id }, process.env.JWT_SECRET, {
-      expiresIn: '7d',
-    });
-
     return res.status(201).json({
       success: true,
       message: 'Admin successfully added',
       admin,
-      token,
     });
   } catch (error) {
     console.log(error);
@@ -135,4 +130,109 @@ const getAdmin = async (req, res) => {
   }
 };
 
-export { adminSignUp, adminLogin, getAdmin };
+//admin add doctor
+const addDoctor = async (req, res) => {
+  try {
+    const {
+      adminId,
+      name,
+      email,
+      password,
+      speciality,
+      experience,
+      fee,
+      qualification,
+      address,
+      about,
+    } = req.body;
+    const imageFile = req.file;
+
+    //validation
+    if (!validator.isEmail(email)) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Enter a valid email' });
+    }
+    if (password.length < 8) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Enter a stronger password' });
+    }
+
+    //check if doctor already exist
+    const existingDoctor = await Doctor.findOne({ email });
+    if (existingDoctor) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Doctor already exist' });
+    }
+
+    //hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    //upload image to cloudinary
+    const uploadImage = await cloudinary.uploader.upload(imageFile.path, {
+      resource_type: 'image',
+    });
+    const imageUrl = uploadImage.secure_url;
+
+    const doctor = new Doctor({
+      adminId,
+      name,
+      email,
+      password: hashedPassword,
+      speciality,
+      experience,
+      fee,
+      qualification,
+      address,
+      about,
+      image: imageUrl,
+      date: Date.now(),
+    });
+    await doctor.save();
+    return res.status(201).json({
+      success: true,
+      message: 'Doctor successfully added',
+      doctor,
+    });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+//get doctors
+const getDoctors = async (req, res) => {
+  try {
+    const query = req.query.q;
+    let doctors;
+    if (query) {
+      const regex = new RegExp(query, 'i', 'g');
+      doctors = await Doctor.find({
+        $or: [
+          {
+            name: regex,
+          },
+          {
+            speciality: regex,
+          },
+        ],
+      });
+    } else {
+      doctors = await Doctor.find().select('-password');
+    }
+
+    return res.status(201).send({
+      success: true,
+      message: 'Doctors fetched successfully',
+      doctors,
+    });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export { adminSignUp, adminLogin, getAdmin, addDoctor, getDoctors };

@@ -3,6 +3,8 @@ import User from '../models/User.js';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { v2 as cloudinary } from 'cloudinary';
+import Doctor from '../models/Doctor.js';
+import Appointment from '../models/Appointment.js';
 
 //create new user
 const createUser = async (req, res) => {
@@ -161,4 +163,88 @@ const updateUser = async (req, res) => {
   }
 };
 
-export { createUser, userLogin, getUser, updateUser };
+const filterDoctor = async (req, res) => {
+  try {
+    const filter = req.params.filter;
+    const filteredDocs = await Doctor.find({ speciality: { $in: filter } });
+    if (!filteredDocs) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'No doctor found' });
+    }
+
+    return res.status(201).send({
+      success: true,
+      message: 'Doctors filtered',
+      filteredDocs,
+    });
+  } catch (error) {
+    console.log(error);
+    return res.json({ success: false, message: error.message });
+  }
+};
+
+//book appointment
+const bookAppointment = async (req, res) => {
+  try {
+    const { userId, docId, slotDate, slotTime } = req.body;
+    const userData = await User.findById(userId).select('-password');
+    const docData = await Doctor.findById(docId).select('-password');
+
+    if (!docData) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Doctor not available!' });
+    }
+
+    //check if slot is available
+    let slots_booked = docData.slots_booked;
+    if (slots_booked[slotDate]) {
+      if (slots_booked[slotDate].includes(slotTime)) {
+        return res
+          .status(400)
+          .json({ success: false, message: 'Slot not available!' });
+      } else {
+        slots_booked[slotDate].push(slotTime);
+      }
+    } else {
+      slots_booked[slotDate] = [];
+      slots_booked[slotDate].push(slotTime);
+    }
+
+    //delete booked slot from docData
+    delete docData.slots_booked;
+
+    //save new appointment
+    const appointment = new Appointment({
+      userId,
+      docId,
+      userData,
+      docData,
+      amount: docData.fee,
+      slotTime,
+      slotDate,
+      date: Date.now(),
+    });
+    await appointment.save();
+
+    //save new slots in doctor's data
+    await Doctor.findByIdAndUpdate(docId, { slots_booked });
+
+    return res
+      .status(201)
+      .json({ success: true, message: 'Appointment booked', appointment });
+  } catch (error) {
+    console.log(error);
+    return res.json({ success: false, message: error.message });
+  }
+};
+
+export {
+  createUser,
+  userLogin,
+  getUser,
+  updateUser,
+  filterDoctor,
+  bookAppointment,
+};
