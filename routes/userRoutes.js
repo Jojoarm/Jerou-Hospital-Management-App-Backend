@@ -1,9 +1,14 @@
 import express from 'express';
 import {
   bookAppointment,
+  cancelAppointment,
   createUser,
+  deleteAppointment,
   filterDoctor,
+  getAppointment,
+  getAppointments,
   getUser,
+  rescheduleAppointment,
   updateUser,
   userLogin,
 } from '../controllers/userController.js';
@@ -25,5 +30,10 @@ userRouter.post(
 userRouter.get('/get-doctors', getDoctors);
 userRouter.get('/get-doctors/:filter', filterDoctor);
 userRouter.post('/book-appointment', authUser, bookAppointment);
+userRouter.get('/get-appointments', authUser, getAppointments);
+userRouter.post('/get-appointment', authUser, getAppointment);
+userRouter.post('/cancel-appointment', authUser, cancelAppointment);
+userRouter.post('/reschedule-appointment', authUser, rescheduleAppointment);
+userRouter.post('/delete-appointment', authUser, deleteAppointment);
 
 export default userRouter;

@@ -240,6 +240,144 @@ const bookAppointment = async (req, res) => {
   }
 };
 
+//get appointments
+const getAppointments = async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const appointments = await Appointment.find({ userId });
+    if (!appointments) {
+      return res
+        .status(400)
+        .json({ success: 'false', message: 'No appointment for user found' });
+    }
+    return res.status(201).json({
+      success: true,
+      message: 'Appointments fetched successfully',
+      appointments,
+    });
+  } catch (error) {
+    console.log(error);
+    return res.json({ success: false, message: error.message });
+  }
+};
+
+//get a single appointment
+const getAppointment = async (req, res) => {
+  try {
+    const { userId, appointmentId } = req.body;
+    const appointmentData = await Appointment.findById(appointmentId);
+    if (appointmentData.userId !== userId) {
+      return res
+        .status(400)
+        .json({ success: 'false', message: 'Not Authorized!' });
+    }
+    return res.status(201).json({
+      success: true,
+      message: 'Appointment fetched successfully',
+      appointmentData,
+    });
+  } catch (error) {
+    console.log(error);
+    return res.json({ success: false, message: error.message });
+  }
+};
+
+const cancelAppointment = async (req, res) => {
+  try {
+    const { userId, appointmentId } = req.body;
+    //find the appointment
+    const appointmentData = await Appointment.findById(appointmentId);
+    if (appointmentData.userId !== userId) {
+      return res
+        .status(400)
+        .json({ success: 'false', message: 'Not Authorized!' });
+    }
+
+    await Appointment.findByIdAndUpdate(appointmentId, { cancelled: true });
+
+    //remove the canceled slot from doctor's data
+    const { docId, slotDate, slotTime } = appointmentData;
+    const doctorData = await Doctor.findById(docId);
+    let slots_booked = doctorData.slots_booked;
+    //filter out the cancelled slot time from the slot time array
+    slots_booked[slotDate] = slots_booked[slotDate].filter(
+      (slot) => slot !== slotTime
+    );
+    await Doctor.findByIdAndUpdate(docId, { slots_booked });
+
+    return res
+      .status(201)
+      .json({ success: true, message: 'Appointment Cancelled' });
+  } catch (error) {
+    console.log(error);
+    return res.json({ success: false, message: error.message });
+  }
+};
+
+const rescheduleAppointment = async (req, res) => {
+  try {
+    const { userId, appointmentId, slotDate, slotTime } = req.body;
+    const appointmentData = await Appointment.findById(appointmentId);
+    if (appointmentData.userId !== userId) {
+      return res
+        .status(400)
+        .json({ success: 'false', message: 'Not Authorized!' });
+    }
+    await Appointment.findByIdAndUpdate(appointmentId, {
+      slotDate: slotDate,
+      slotTime: slotTime,
+      cancelled: false,
+    });
+
+    //update the doctor's data appointment slots
+    const doctorData = await Doctor.findById(appointmentData.docId);
+    let slots_booked = doctorData.slots_booked;
+    if (slots_booked[slotDate]) {
+      if (slots_booked[slotDate].includes(slotTime)) {
+        return res
+          .status(400)
+          .json({ success: false, message: 'Slot not available!' });
+      } else {
+        slots_booked[slotDate].push(slotTime);
+      }
+    } else {
+      slots_booked[slotDate] = [];
+      slots_booked[slotDate].push(slotTime);
+    }
+    await Doctor.findByIdAndUpdate(appointmentData.docId, { slots_booked });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Appointment Rescheduled!',
+      appointmentData,
+    });
+  } catch (error) {
+    console.log(error);
+    return res.json({ success: false, message: error.message });
+  }
+};
+
+const deleteAppointment = async (req, res) => {
+  try {
+    const { userId, appointmentId } = req.body;
+    //find the appointment
+    const appointmentData = await Appointment.findById(appointmentId);
+    if (appointmentData.userId !== userId) {
+      return res
+        .status(400)
+        .json({ success: 'false', message: 'Not Authorized!' });
+    }
+
+    await Appointment.findByIdAndDelete(appointmentId);
+    return res
+      .status(201)
+      .json({ success: true, message: 'Appointment Deleted' });
+  } catch (error) {
+    console.log(error);
+    return res.json({ success: false, message: error.message });
+  }
+};
+
 export {
   createUser,
   userLogin,
@@ -247,4 +385,9 @@ export {
   updateUser,
   filterDoctor,
   bookAppointment,
+  getAppointments,
+  cancelAppointment,
+  deleteAppointment,
+  rescheduleAppointment,
+  getAppointment,
 };
