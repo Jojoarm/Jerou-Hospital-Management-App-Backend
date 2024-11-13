@@ -5,6 +5,18 @@ import jwt from 'jsonwebtoken';
 import { v2 as cloudinary } from 'cloudinary';
 import Doctor from '../models/Doctor.js';
 import Appointment from '../models/Appointment.js';
+import Stripe from 'stripe';
+import Order from '../models/Order.js';
+import https from 'https';
+import crypto from 'crypto';
+import PayStack from 'paystack-node';
+
+const environment = process.env.NODE_ENV;
+const paystack = new PayStack(process.env.PAYSTACK_SECRET_KEY, environment);
+
+const STRIPE = new Stripe(process.env.STRIPE_API_KEY);
+const FRONTEND_URL = process.env.FRONTEND_URL;
+const STRIPE_ENDPOINT_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 
 //create new user
 const createUser = async (req, res) => {
@@ -378,6 +390,216 @@ const deleteAppointment = async (req, res) => {
   }
 };
 
+//book appointment and make payment using stripe
+const stripePayment = async (req, res) => {
+  try {
+    const { userId, appointmentId } = req.body;
+    const userData = await User.findById(userId);
+    const appointmentData = await Appointment.findById(appointmentId);
+    if (!userData || !appointmentData) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Cannot process payment' });
+    }
+
+    const newOrder = new Order({
+      appointmentId,
+      userId,
+      appointmentData,
+      userData,
+      status: 'placed',
+      amount: appointmentData.amount,
+    });
+
+    //get the order id for stripe
+    const orderId = newOrder._id.toString();
+
+    const lineItems = [
+      {
+        price_data: {
+          //   currency: 'usd',
+          currency: 'ngn',
+          product_data: {
+            name: appointmentData.docData.name,
+          },
+          unit_amount: Math.round(appointmentData.amount * 100000),
+          //   unit_amount: Math.round(appointmentData.amount * 100),
+        },
+        quantity: 1,
+      },
+    ];
+    const session = await STRIPE.checkout.sessions.create({
+      line_items: lineItems,
+      payment_method_types: ['card'],
+      mode: 'payment',
+      metadata: { orderId, appointmentId },
+      payment_intent_data: {
+        metadata: {
+          orderId,
+          appointmentId,
+        },
+      },
+      success_url: `${FRONTEND_URL}/my-appointments`,
+      cancel_url: `${FRONTEND_URL}/doctors`,
+    });
+
+    if (!session.url) {
+      return res.status(400).json({
+        success: false,
+        message: 'Error creating stripe session payment',
+      });
+    }
+
+    await newOrder.save();
+
+    return res.status(201).json({
+      success: true,
+      message: 'Appointment booked',
+      newOrder,
+      url: session.url,
+    });
+  } catch (error) {
+    console.log(error);
+    return res.json({ success: false, message: error.message });
+  }
+};
+
+const stripeWebHookHandler = async (req, res) => {
+  let event;
+  try {
+    const sig = req.headers['stripe-signature'];
+    event = STRIPE.webhooks.constructEvent(
+      req.body,
+      sig,
+      STRIPE_ENDPOINT_SECRET
+    );
+  } catch (error) {
+    console.log(error);
+    return res.status(400).send(`Webhook error: ${error.message}`);
+  }
+
+  if (event.type === 'payment_intent.succeeded') {
+    const orderId = event.data.object?.metadata?.orderId;
+    const appointmentId = event.data.object?.metadata?.appointmentId;
+    const order = await Order.findById(orderId);
+    const appointment = await Appointment.findById(appointmentId);
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    await Appointment.findByIdAndUpdate(appointmentId, { paid: true });
+    await Order.findByIdAndUpdate(orderId, {
+      status: 'paid',
+    });
+  } else {
+    console.log(`Unhandled event type ${event.type}`);
+  }
+  res.status(200).send();
+};
+
+const payStackPayment = async (req, res) => {
+  try {
+    const { userId, appointmentId } = req.body;
+    const userData = await User.findById(userId);
+    const appointmentData = await Appointment.findById(appointmentId);
+    if (!userData || !appointmentData) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Cannot process payment' });
+    }
+
+    const newOrder = new Order({
+      appointmentId,
+      userId,
+      appointmentData,
+      userData,
+      status: 'placed',
+      amount: appointmentData.amount,
+    });
+
+    //get the order id for stripe
+    const orderId = newOrder._id.toString();
+
+    const params = JSON.stringify({
+      email: userData.email,
+      amount: appointmentData.amount * 100,
+      callback_url: `${FRONTEND_URL}/paystack-payment-verification`,
+      metadata: { orderId, appointmentId },
+    });
+
+    const options = {
+      hostname: 'api.paystack.co',
+      port: 443,
+      path: '/transaction/initialize',
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+        'Content-Type': 'application/json',
+      },
+    };
+
+    const reqPaystack = https
+      .request(options, (resPaystack) => {
+        let data = '';
+
+        resPaystack.on('data', (chunk) => {
+          data += chunk;
+        });
+
+        resPaystack.on('end', () => {
+          res.send(data);
+          console.log(JSON.parse(data));
+        });
+      })
+      .on('error', (error) => {
+        console.error(error);
+      });
+
+    reqPaystack.write(params);
+    reqPaystack.end();
+    await newOrder.save();
+  } catch (error) {
+    console.log(error);
+    return res.json({ success: false, message: error.message });
+  }
+};
+
+const paystackVerification = async (req, res) => {
+  const reference = req.params.reference;
+  // ==== Paystack verify call ===== ///
+  try {
+    const response = await paystack.verifyTransaction({ reference: reference });
+    const data = response.body.data;
+    if (data.status === 'success') {
+      const orderId = data?.metadata?.orderId;
+      const appointmentId = data?.metadata?.appointmentId;
+      const order = await Order.findById(orderId);
+      const appointment = await Appointment.findById(appointmentId);
+      if (!order) {
+        return res.status(404).json({ message: 'Order not found' });
+      }
+      if (!appointment) {
+        return res.status(404).json({ message: 'Appointment not found' });
+      }
+
+      await Appointment.findByIdAndUpdate(appointmentId, { paid: true });
+      await Order.findByIdAndUpdate(orderId, {
+        status: 'paid',
+      });
+
+      return res
+        .status(201)
+        .json({ success: true, message: 'Payment verified', data });
+    }
+  } catch (error) {
+    console.log(error);
+    return res.json({ success: false, message: error.message });
+  }
+};
+
 export {
   createUser,
   userLogin,
@@ -390,4 +612,8 @@ export {
   deleteAppointment,
   rescheduleAppointment,
   getAppointment,
+  stripePayment,
+  stripeWebHookHandler,
+  payStackPayment,
+  paystackVerification,
 };

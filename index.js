@@ -19,7 +19,6 @@ mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log('Connected to DB'));
 
-app.use(express.json());
 app.use(cookieParser()); //allows us to parse incoming cookies: res.cookies
 
 const corsOptions = {
@@ -29,6 +28,12 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+
+//for stripe
+//for stripe
+app.use('/api/user/checkout/webhook', express.raw({ type: '*/*' }));
+
+app.use(express.json());
 
 app.use('/api/user', userRouter);
 app.use('/api/admin', adminRouter);
