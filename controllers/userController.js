@@ -10,6 +10,8 @@ import Order from '../models/Order.js';
 import https from 'https';
 import crypto from 'crypto';
 import PayStack from 'paystack-node';
+import Event from '../models/Event.js';
+import Post from '../models/Post.js';
 
 const environment = process.env.NODE_ENV;
 const paystack = new PayStack(process.env.PAYSTACK_SECRET_KEY, environment);
@@ -175,6 +177,25 @@ const updateUser = async (req, res) => {
   }
 };
 
+//fetch single doctor
+const getDoctor = async (req, res) => {
+  try {
+    const docId = req.params.docId;
+    const doctor = await Doctor.findById(docId).select('-password');
+    if (!doctor) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Doctor not available' });
+    }
+    return res
+      .status(201)
+      .json({ success: true, message: 'Doctor fetched', doctor });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 const filterDoctor = async (req, res) => {
   try {
     const filter = req.params.filter;
@@ -204,18 +225,18 @@ const bookAppointment = async (req, res) => {
     const docData = await Doctor.findById(docId).select('-password');
 
     if (!docData) {
-      return res
-        .status(400)
-        .json({ success: false, message: 'Doctor not available!' });
+      return res.json({ success: false, message: 'Doctor not found!' });
+    }
+
+    if (!docData.available) {
+      return res.json({ success: false, message: 'Doctor not available!' });
     }
 
     //check if slot is available
     let slots_booked = docData.slots_booked;
     if (slots_booked[slotDate]) {
       if (slots_booked[slotDate].includes(slotTime)) {
-        return res
-          .status(400)
-          .json({ success: false, message: 'Slot not available!' });
+        return res.json({ success: false, message: 'Slot not available!' });
       } else {
         slots_booked[slotDate].push(slotTime);
       }
@@ -422,8 +443,7 @@ const stripePayment = async (req, res) => {
           product_data: {
             name: appointmentData.docData.name,
           },
-          unit_amount: Math.round(appointmentData.amount * 100000),
-          //   unit_amount: Math.round(appointmentData.amount * 100),
+          unit_amount: Math.round(appointmentData.amount * 100),
         },
         quantity: 1,
       },
@@ -600,11 +620,31 @@ const paystackVerification = async (req, res) => {
   }
 };
 
+//get posts
+const getPosts = async (req, res) => {
+  try {
+    const posts = await Post.find();
+    if (!posts) {
+      return res.status(404).json({ success: false, message: 'No post found' });
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: 'Posts fetched successfully',
+      posts: posts.reverse(),
+    });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export {
   createUser,
   userLogin,
   getUser,
   updateUser,
+  getDoctor,
   filterDoctor,
   bookAppointment,
   getAppointments,
@@ -616,4 +656,5 @@ export {
   stripeWebHookHandler,
   payStackPayment,
   paystackVerification,
+  getPosts,
 };

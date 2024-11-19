@@ -7,6 +7,8 @@ import {
   filterDoctor,
   getAppointment,
   getAppointments,
+  getDoctor,
+  getPosts,
   getUser,
   payStackPayment,
   paystackVerification,
@@ -33,6 +35,7 @@ userRouter.post(
   updateUser
 );
 userRouter.get('/get-doctors', getDoctors);
+userRouter.get('/doctor-profile/:docId', getDoctor);
 userRouter.get('/get-doctors/:filter', filterDoctor);
 userRouter.post('/book-appointment', authUser, bookAppointment);
 userRouter.get('/get-appointments', authUser, getAppointments);
@@ -48,6 +51,7 @@ userRouter.get(
   authUser,
   paystackVerification
 );
+userRouter.get('/posts', getPosts);
 // userRouter.post('/my/webhook/url', payStackWebHookHandler);
 
 export default userRouter;
