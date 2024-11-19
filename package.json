@@ -7,7 +7,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "concurrently \"nodemon\" \"npm run stripe\" index.js",
-    "stripe": "stripe listen --forward-to localhost:5000/api/user/checkout/webhook"
+    "stripe": "stripe listen --forward-to localhost:5000/api/user/checkout/webhook",
+    "build": "npm install",
+    "start": "node index.js"
   },
   "author": "Dev Armani",
   "license": "ISC",

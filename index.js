@@ -35,6 +35,10 @@ app.use('/api/user/checkout/webhook', express.raw({ type: '*/*' }));
 
 app.use(express.json());
 
+app.get('/health', async (req, res) => {
+  res.send({ message: 'Health ok!' });
+});
+
 app.use('/api/user', userRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/doctor', doctorRouter);
